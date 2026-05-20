@@ -1,5 +1,5 @@
 # Sistema de Inscripciones - Cloud Native
-
+ 
 ## Tecnologías utilizadas
 - Java 21
 - Spring Boot
