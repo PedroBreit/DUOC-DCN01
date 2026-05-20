@@ -1,0 +1,82 @@
+name: Build and Deploy Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Paso 1: Checkout del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Paso 2: Configurar Java 21
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Paso 3: Compilar proyecto Maven
+      - name: Build project
+        run: mvn clean package -DskipTests
+
+      # Paso 4: Autenticar en DockerHub
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      # Paso 5: Construir la imagen Docker
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/inscripciones-app:latest .
+
+      # Paso 6: Hacer push de la imagen a DockerHub
+      - name: Push Docker image
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/inscripciones-app:latest
+
+      # Paso 7: Agregar llave SSH para conexión EC2
+      - name: Add SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      # Paso 8: Agregar EC2 a known_hosts
+      - name: Add EC2 to known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      # Paso 9: Conectarse a EC2 y desplegar contenedor
+      - name: SSH commands to deploy
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{ secrets.USER_SERVER }}@${{ secrets.EC2_HOST }} << 'EOF'
+
+            # Descargar la última imagen desde DockerHub
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/inscripciones-app:latest
+
+            # Detener contenedor anterior si existe
+            docker stop inscripciones-app || true
+
+            # Eliminar contenedor anterior si existe
+            docker rm inscripciones-app || true
+
+            # Levantar nuevo contenedor
+            docker run -d \
+              --name inscripciones-app \
+              -p 8080:8080 \
+              ${{ secrets.DOCKERHUB_USERNAME }}/inscripciones-app:latest
+
+          EOF
